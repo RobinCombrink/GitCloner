@@ -1,16 +1,22 @@
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result};
 use git2::{build::RepoBuilder, Cred, FetchOptions, RemoteCallbacks};
-use indicatif::{ProgressBar, ProgressFinish, ProgressStyle};
+use indicatif::{MultiProgress, ProgressBar, ProgressFinish, ProgressStyle};
 use octocrab::Octocrab;
 use secrecy::{ExposeSecret, SecretString};
 use std::{borrow::Cow, fs, path::PathBuf, time::Duration};
+use tokio::task::JoinSet;
 
 use github_authentication::authentication::Authentication;
 
+pub trait GitRepository {
+    fn get_owner(&self) -> String;
+    fn get_repository_name(&self) -> String;
+}
+
 #[derive(Debug)]
 pub struct GitCloner<T: Authentication> {
-    authentication: T,
-    directory_path: PathBuf,
+    pub authentication: T,
+    pub directory_path: PathBuf,
 }
 
 impl<T: Authentication> GitCloner<T> {
@@ -22,25 +28,18 @@ impl<T: Authentication> GitCloner<T> {
         Self::initialise_octocrab(&cloner)?;
         Ok(cloner)
     }
-    pub async fn clone_repository(
-        &self,
-        owner: &String,
-        repo: &String,
+    pub fn clone_repository(
+        owner: String,
+        repo: String,
+        token: SecretString,
+        directory_path: PathBuf,
+        username: String,
         progress_bar: ProgressBar,
     ) -> Result<()> {
-        let token = &self.authentication.get_token();
+        fs::create_dir_all(&directory_path)
+            .with_context(|| format!("Could not create directory: {:#?}", &directory_path))?;
 
-        let repository = octocrab::instance()
-            .repos(owner, repo)
-            .get()
-            .await
-            .expect("Invalid repo");
-
-        println!("clone dir: {:#?}", &self.directory_path);
-        fs::create_dir_all(&self.directory_path)
-            .with_context(|| format!("Could not create directory: {:#?}", &self.directory_path))?;
-
-        let directory_path = self.directory_path.join(repo.clone());
+        let directory_path = directory_path.join(repo.clone());
 
         let local_repo = git2::Repository::open(&directory_path);
         match local_repo {
@@ -49,19 +48,11 @@ impl<T: Authentication> GitCloner<T> {
                 .expect("Imagine not using origin as your remote name")
                 .fetch(&["main"], None, None)
                 .with_context(|| {
-                    format!(
-                        "Could not fetch origin main for local repository: {}",
-                        repository.name
-                    )
+                    format!("Could not fetch origin main for local repository: {}", repo)
                 }),
             Err(_) => {
-                let url = &repository.html_url.ok_or(anyhow!(
-                    "{} does not have an html url",
-                    repository
-                        .full_name
-                        .unwrap_or_else(|| repository.name.clone())
-                ))?;
-                let username = self.authentication.get_username();
+                let url = format!("https://github.com/{owner}/{repo}");
+                let username = username;
                 let fetch_options =
                     Self::create_repository_fetch_options(&token, &username, progress_bar);
 
@@ -80,6 +71,56 @@ impl<T: Authentication> GitCloner<T> {
                 result
             }
         }
+    }
+
+    pub async fn clone_repos<G: GitRepository>(&self, git_clones: Vec<G>) -> Vec<Result<()>> {
+        let multi_progress = MultiProgress::new();
+        let mut tasks = JoinSet::new();
+
+        let coordinator_progress_bar = create_progress_bar(
+            git_clones.len(),
+            format!("Cloning {} repositories", git_clones.len(),),
+            ProgressFinish::WithMessage(Cow::from(format!(
+                "{} repos downloaded",
+                git_clones.len(),
+            ))),
+            ProgressStyle::with_template(&format!(
+                "[{{elapsed_precise}}] {{bar:{}.cyan/blue}} {{pos:>7}}/{{len:7}} {{msg}}",
+                git_clones.len(),
+            ))
+            .unwrap()
+            .progress_chars("✓▢▢"),
+        );
+
+        let coordinator_progress_bar = multi_progress.add(coordinator_progress_bar);
+        coordinator_progress_bar.set_position(0);
+        print!("\n");
+
+        for repo_details in git_clones {
+            let owner = repo_details.get_owner();
+            let repo = repo_details.get_repository_name();
+            let directory_path = self.directory_path.clone();
+            let username = self.authentication.get_username();
+            let token = self.authentication.get_token();
+            let progress_bar = multi_progress.add(create_download_asset_progress_bar(
+                &owner,
+                &repo,
+                directory_path.join(repo.clone()),
+            ));
+
+            tasks.spawn(async {
+                Self::clone_repository(owner, repo, token, directory_path, username, progress_bar)
+            });
+        }
+        let mut results = Vec::new();
+        while let Some(res) = tasks.join_next().await {
+            match res {
+                Ok(a) => results.push(a),
+                Err(err) => results.push(Err(err.into())),
+            }
+            coordinator_progress_bar.set_position(results.len().try_into().unwrap());
+        }
+        results
     }
 
     pub fn create_repository_fetch_options<'token>(
@@ -180,23 +221,26 @@ mod tests {
 
     #[tokio::test]
     async fn clone() {
-        let _ = fs::remove_dir_all("./Test");
-        let directory_path = "./Test".into();
-        let owner = &"RobinCombrink".to_owned();
-        let repo = &"GitCloner".to_owned();
+        let directory_path = "./Test/GitHubSearch".into();
+        let _ = fs::remove_dir_all(&directory_path);
+        let owner = "RobinCombrink".to_owned();
+        let repo = "GitCloner".to_owned();
 
-        let authentication = GitHubCliAuthentication::new(owner.to_owned()).unwrap();
+        let authentication = GitHubCliAuthentication::new(owner.clone()).unwrap();
 
         let cloner = GitCloner::new(authentication, directory_path).unwrap();
         let directory_path = cloner.directory_path.clone();
-        assert!(cloner
-            .clone_repository(
-                owner,
-                repo,
-                create_download_asset_progress_bar(owner, repo, directory_path,)
-            )
-            .await
-            .is_ok());
-        let _ = fs::remove_dir_all("./Test");
+        let progress_bar =
+            create_download_asset_progress_bar(&owner, &repo, directory_path.clone());
+        assert!(GitCloner::<GitHubCliAuthentication>::clone_repository(
+            owner,
+            repo,
+            cloner.authentication.get_token(),
+            cloner.directory_path,
+            cloner.authentication.get_username(),
+            progress_bar
+        )
+        .is_ok());
+        let _ = fs::remove_dir_all(&directory_path);
     }
 }
