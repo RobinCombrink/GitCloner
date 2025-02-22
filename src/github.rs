@@ -7,39 +7,31 @@ use std::{borrow::Cow, fs, path::PathBuf, time::Duration};
 
 use github_authentication::authentication::Authentication;
 
+#[derive(Debug)]
 pub struct GitCloner<T: Authentication> {
     authentication: T,
-    git_clone: GitClone,
     directory_path: PathBuf,
 }
 
-pub struct GitClone {
-    pub owner: String,
-    pub repo: String,
-}
 impl<T: Authentication> GitCloner<T> {
-    pub fn from_gitclone(
-        authentication: T,
-        git_clone: GitClone,
-        directory_path: PathBuf,
-    ) -> Result<GitCloner<T>> {
+    pub fn new(authentication: T, directory_path: PathBuf) -> Result<GitCloner<T>> {
         let cloner = GitCloner {
             authentication,
-            git_clone,
             directory_path,
         };
         Self::initialise_octocrab(&cloner)?;
         Ok(cloner)
     }
-    pub async fn clone_repository(&self, progress_bar: ProgressBar) -> Result<()> {
-        self.git_clone(progress_bar).await?;
-        Ok(())
-    }
-    async fn git_clone(&self, progress_bar: ProgressBar) -> Result<()> {
+    pub async fn clone_repository(
+        &self,
+        owner: &String,
+        repo: &String,
+        progress_bar: ProgressBar,
+    ) -> Result<()> {
         let token = &self.authentication.get_token();
 
-        let repo = octocrab::instance()
-            .repos(&self.git_clone.owner, &self.git_clone.repo)
+        let repository = octocrab::instance()
+            .repos(owner, repo)
             .get()
             .await
             .expect("Invalid repo");
@@ -48,7 +40,7 @@ impl<T: Authentication> GitCloner<T> {
         fs::create_dir_all(&self.directory_path)
             .with_context(|| format!("Could not create directory: {:#?}", &self.directory_path))?;
 
-        let directory_path = self.directory_path.join(self.git_clone.repo.clone());
+        let directory_path = self.directory_path.join(repo.clone());
 
         let local_repo = git2::Repository::open(&directory_path);
         match local_repo {
@@ -59,22 +51,21 @@ impl<T: Authentication> GitCloner<T> {
                 .with_context(|| {
                     format!(
                         "Could not fetch origin main for local repository: {}",
-                        repo.name
+                        repository.name
                     )
                 }),
             Err(_) => {
-                let url = &repo.html_url.ok_or(anyhow!(
+                let url = &repository.html_url.ok_or(anyhow!(
                     "{} does not have an html url",
-                    repo.full_name.unwrap_or_else(|| repo.name.clone())
+                    repository
+                        .full_name
+                        .unwrap_or_else(|| repository.name.clone())
                 ))?;
+                let username = self.authentication.get_username();
+                let fetch_options =
+                    Self::create_repository_fetch_options(&token, &username, progress_bar);
 
-                let fetch_options = Self::create_repository_fetch_options(
-                    &token,
-                    &self.git_clone.owner,
-                    progress_bar,
-                );
-
-                match RepoBuilder::new()
+                let result = match RepoBuilder::new()
                     .fetch_options(fetch_options)
                     .clone(url.as_str(), &directory_path)
                     .with_context(|| {
@@ -85,7 +76,8 @@ impl<T: Authentication> GitCloner<T> {
                         let _ = fs::remove_dir_all(&directory_path);
                         Err(e)
                     }
-                }
+                };
+                result
             }
         }
     }
@@ -190,20 +182,19 @@ mod tests {
     async fn clone() {
         let _ = fs::remove_dir_all("./Test");
         let directory_path = "./Test".into();
-        let git_clone = GitClone {
-            owner: "RobinCombrink".into(),
-            repo: "GitCloner".into(),
-        };
-        let authentication = GitHubCliAuthentication::new(git_clone.owner.to_owned()).unwrap();
+        let owner = &"RobinCombrink".to_owned();
+        let repo = &"GitCloner".to_owned();
 
-        let cloner = GitCloner::from_gitclone(authentication, git_clone, directory_path).unwrap();
+        let authentication = GitHubCliAuthentication::new(owner.to_owned()).unwrap();
+
+        let cloner = GitCloner::new(authentication, directory_path).unwrap();
         let directory_path = cloner.directory_path.clone();
         assert!(cloner
-            .clone_repository(create_download_asset_progress_bar(
-                &cloner.git_clone.owner,
-                &cloner.git_clone.repo,
-                directory_path
-            ))
+            .clone_repository(
+                owner,
+                repo,
+                create_download_asset_progress_bar(owner, repo, directory_path,)
+            )
             .await
             .is_ok());
         let _ = fs::remove_dir_all("./Test");
