@@ -10,9 +10,15 @@ use github_authentication::authentication::Authentication;
 
 const REMOTE_NAME: &str = "origin";
 
-pub trait GitRepository {
-    fn get_owner(&self) -> String;
-    fn get_repository_name(&self) -> String;
+pub struct GitClone {
+    owner: String,
+    repo: String,
+}
+
+impl GitClone {
+    pub fn new(owner: String, repo: String) -> Self {
+        Self { owner, repo }
+    }
 }
 
 #[derive(Debug)]
@@ -30,6 +36,38 @@ impl<T: Authentication> GitCloner<T> {
         Self::initialise_octocrab(&cloner)?;
         Ok(cloner)
     }
+
+    // fn clone_repository_branches(
+    //     repo: git2::Repository,
+    //     name: String,
+    //     path: PathBuf,
+    //     token: SecretString,
+    // ) -> tokio::task::JoinHandle<Result<()>> {
+    // let branches: HashSet<&str> = ["origin/main", "origin/master", "origin/develop"]
+    //     .iter()
+    //     .cloned()
+    //     .collect();
+
+    // let remote_branches = repo.branches(Some(BranchType::Remote)).unwrap();
+    // let filtered_branches = remote_branches
+    //     .filter_map(|branch| {
+    //         //TODO: Make safe
+    //         let branch = branch.as_ref().unwrap();
+    //         let branch_name = &branch.0.name().unwrap().unwrap();
+    //         //TODO: Add verbose logging option
+    //         if branches.contains(branch_name) {
+    //             // println!("branches contains: {branch_name}");
+    //             return Some((*branch_name).to_owned());
+    //         } else {
+    //             // println!("branches: {:?} does not contain: {branch_name}", branches);
+    //             return None;
+    //         }
+    //     })
+    //     .collect::<Vec<String>>();
+    //     let username = self.cloner.authentication.get_username().clone();
+    //     tokio::task::spawn_blocking(move || self::fetch_repository(path, repo, username, token))
+    // }
+
     fn fetch_repository(
         repo: git2::Repository,
         username: String,
@@ -88,10 +126,7 @@ impl<T: Authentication> GitCloner<T> {
         }
     }
 
-    pub async fn clone_or_fetch_repositories<G: GitRepository>(
-        &self,
-        git_clones: Vec<G>,
-    ) -> Vec<Result<()>> {
+    pub async fn clone_or_fetch_repositories(&self, git_clones: Vec<GitClone>) -> Vec<Result<()>> {
         let multi_progress = MultiProgress::new();
         let mut tasks = JoinSet::new();
 
@@ -115,8 +150,8 @@ impl<T: Authentication> GitCloner<T> {
         print!("\n");
 
         for repo_details in git_clones {
-            let owner = repo_details.get_owner();
-            let repo = repo_details.get_repository_name();
+            let owner = repo_details.owner;
+            let repo = repo_details.repo;
             let directory_path = self.directory_path.clone();
             let username = self.authentication.get_username();
             let token = self.authentication.get_token();
@@ -126,9 +161,7 @@ impl<T: Authentication> GitCloner<T> {
                 directory_path.join(repo.clone()),
             ));
 
-            let local_path = self
-                .directory_path
-                .join(&repo_details.get_repository_name());
+            let local_path = self.directory_path.join(&repo);
 
             match git2::Repository::open(&local_path) {
                 Ok(local_repo) => tasks.spawn(async {
