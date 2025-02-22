@@ -8,6 +8,8 @@ use tokio::task::JoinSet;
 
 use github_authentication::authentication::Authentication;
 
+const REMOTE_NAME: &str = "origin";
+
 pub trait GitRepository {
     fn get_owner(&self) -> String;
     fn get_repository_name(&self) -> String;
@@ -28,6 +30,19 @@ impl<T: Authentication> GitCloner<T> {
         Self::initialise_octocrab(&cloner)?;
         Ok(cloner)
     }
+    fn fetch_repository(
+        repo: git2::Repository,
+        username: String,
+        token: SecretString,
+        progress_bar: ProgressBar,
+    ) -> Result<()> {
+        let mut remote = repo.find_remote(REMOTE_NAME)?;
+        // error!("Failed to find remote for:{}/\n{e}", path.display());
+        let mut fetch_options =
+            Self::create_repository_fetch_options(&token, &username, progress_bar);
+        Ok(remote.fetch(&["main"], Some(&mut fetch_options), None)?)
+    }
+
     pub fn clone_repository(
         owner: String,
         repo: String,
@@ -73,7 +88,10 @@ impl<T: Authentication> GitCloner<T> {
         }
     }
 
-    pub async fn clone_repos<G: GitRepository>(&self, git_clones: Vec<G>) -> Vec<Result<()>> {
+    pub async fn clone_or_fetch_repositories<G: GitRepository>(
+        &self,
+        git_clones: Vec<G>,
+    ) -> Vec<Result<()>> {
         let multi_progress = MultiProgress::new();
         let mut tasks = JoinSet::new();
 
@@ -108,9 +126,25 @@ impl<T: Authentication> GitCloner<T> {
                 directory_path.join(repo.clone()),
             ));
 
-            tasks.spawn(async {
-                Self::clone_repository(owner, repo, token, directory_path, username, progress_bar)
-            });
+            let local_path = self
+                .directory_path
+                .join(&repo_details.get_repository_name());
+
+            match git2::Repository::open(&local_path) {
+                Ok(local_repo) => tasks.spawn(async {
+                    Self::fetch_repository(local_repo, username, token, progress_bar)
+                }),
+                Err(_) => tasks.spawn(async {
+                    Self::clone_repository(
+                        owner,
+                        repo,
+                        token,
+                        directory_path,
+                        username,
+                        progress_bar,
+                    )
+                }),
+            };
         }
         let mut results = Vec::new();
         while let Some(res) = tasks.join_next().await {
@@ -219,8 +253,8 @@ mod tests {
 
     use super::*;
 
-    #[tokio::test]
-    async fn clone() {
+    #[test]
+    fn clone() {
         let directory_path = "./Test/GitHubSearch".into();
         let _ = fs::remove_dir_all(&directory_path);
         let owner = "RobinCombrink".to_owned();
