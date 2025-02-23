@@ -50,7 +50,15 @@ impl<T: Authentication> GitCloner<T> {
     ) -> Result<()> {
         let mut remote = repo.find_remote(REMOTE_NAME)?;
         let mut fetch_options = Self::create_repository_fetch_options(&username, progress_bar);
-        Ok(remote.fetch(&[branch], Some(&mut fetch_options), None)?)
+        let result = remote.fetch(&[branch], Some(&mut fetch_options), None);
+        if let Err(err) = result {
+            if err.message().to_ascii_lowercase() == "no error" {
+                return Ok(());
+            } else {
+                return Err(err.into());
+            }
+        }
+        Ok(())
     }
 
     pub fn clone_repository(
@@ -86,11 +94,8 @@ impl<T: Authentication> GitCloner<T> {
 
         let coordinator_progress_bar = create_progress_bar(
             git_clones.len(),
-            format!("Cloning {} repositories", git_clones.len(),),
-            ProgressFinish::WithMessage(Cow::from(format!(
-                "{} repos downloaded",
-                git_clones.len(),
-            ))),
+            format!("Updating {} repositories", git_clones.len(),),
+            ProgressFinish::WithMessage(Cow::from(format!("{} repos updating", git_clones.len(),))),
             ProgressStyle::with_template(&format!(
                 "[{{elapsed_precise}}] {{bar:{}.cyan/blue}} {{pos:>7}}/{{len:7}} {{msg}}",
                 git_clones.len(),
@@ -101,13 +106,13 @@ impl<T: Authentication> GitCloner<T> {
 
         let coordinator_progress_bar = multi_progress.add(coordinator_progress_bar);
         coordinator_progress_bar.set_position(0);
-        print!("\n");
 
         for repo_details in git_clones {
             let owner = repo_details.owner;
             let repo = repo_details.repo;
             let branch = repo_details.branch;
             let directory_path = self.directory_path.clone();
+            let repository_path = directory_path.join(&repo);
             let username = self.authentication.get_username();
             let progress_bar = multi_progress.add(create_download_asset_progress_bar(
                 &owner,
