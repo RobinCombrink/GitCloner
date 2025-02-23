@@ -216,9 +216,9 @@ impl<T: Authentication> GitCloner<T> {
             true
         });
 
-        callbacks.credentials(move |_url, username_from_url, _allowed_types| {
+        callbacks.credentials(move |_url, _, _allowed_types| {
             Cred::userpass_plaintext(
-                username_from_url.unwrap_or_else(|| &default_username),
+                &default_username,
                 token.expose_secret(),
             )
         });
