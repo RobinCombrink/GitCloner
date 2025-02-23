@@ -1,8 +1,8 @@
 use anyhow::{Context, Result};
-use git2::{build::RepoBuilder, Cred, FetchOptions, RemoteCallbacks};
+use git2::{build::RepoBuilder, Config, Cred, FetchOptions, RemoteCallbacks};
 use indicatif::{MultiProgress, ProgressBar, ProgressFinish, ProgressStyle};
 use octocrab::Octocrab;
-use secrecy::{ExposeSecret, SecretString};
+use secrecy::ExposeSecret;
 use std::{borrow::Cow, fs, path::PathBuf, time::Duration};
 use tokio::task::JoinSet;
 
@@ -46,12 +46,10 @@ impl<T: Authentication> GitCloner<T> {
         repo: git2::Repository,
         branch: String,
         username: String,
-        token: SecretString,
         progress_bar: ProgressBar,
     ) -> Result<()> {
         let mut remote = repo.find_remote(REMOTE_NAME)?;
-        let mut fetch_options =
-            Self::create_repository_fetch_options(&token, &username, progress_bar);
+        let mut fetch_options = Self::create_repository_fetch_options(&username, progress_bar);
         Ok(remote.fetch(&[branch], Some(&mut fetch_options), None)?)
     }
 
@@ -59,7 +57,6 @@ impl<T: Authentication> GitCloner<T> {
         owner: String,
         repo: String,
         branch: String,
-        token: SecretString,
         directory_path: PathBuf,
         username: String,
         progress_bar: ProgressBar,
@@ -70,7 +67,7 @@ impl<T: Authentication> GitCloner<T> {
         let directory_path = directory_path.join(&repo).join(&branch);
 
         let url = format!("https://github.com/{owner}/{repo}");
-        let fetch_options = Self::create_repository_fetch_options(&token, &username, progress_bar);
+        let fetch_options = Self::create_repository_fetch_options(&username, progress_bar);
 
         let result = RepoBuilder::new()
             .fetch_options(fetch_options)
@@ -112,7 +109,6 @@ impl<T: Authentication> GitCloner<T> {
             let branch = repo_details.branch;
             let directory_path = self.directory_path.clone();
             let username = self.authentication.get_username();
-            let token = self.authentication.get_token();
             let progress_bar = multi_progress.add(create_download_asset_progress_bar(
                 &owner,
                 &repo,
@@ -123,14 +119,13 @@ impl<T: Authentication> GitCloner<T> {
 
             match git2::Repository::open(&local_path) {
                 Ok(local_repo) => tasks.spawn(async {
-                    Self::fetch_repository(local_repo, branch, username, token, progress_bar)
+                    Self::fetch_repository(local_repo, branch, username, progress_bar)
                 }),
                 Err(_) => tasks.spawn(async {
                     Self::clone_repository(
                         owner,
                         repo,
                         branch,
-                        token,
                         directory_path,
                         username,
                         progress_bar,
@@ -150,7 +145,6 @@ impl<T: Authentication> GitCloner<T> {
     }
 
     pub fn create_repository_fetch_options<'token>(
-        token: &'token SecretString,
         default_username: &'token str,
         progress_bar: ProgressBar,
     ) -> FetchOptions<'token> {
@@ -175,8 +169,9 @@ impl<T: Authentication> GitCloner<T> {
             true
         });
 
-        callbacks.credentials(move |_url, _, _allowed_types| {
-            Cred::userpass_plaintext(&default_username, token.expose_secret())
+        callbacks.credentials(move |url, _, _allowed_types| {
+            let config = Config::open_default().expect("No git config");
+            Cred::credential_helper(&config, url, Some(default_username))
         });
 
         let mut fetch_options = FetchOptions::new();
@@ -260,7 +255,6 @@ mod tests {
             owner,
             repo,
             branch,
-            cloner.authentication.get_token(),
             cloner.directory_path,
             cloner.authentication.get_username(),
             progress_bar
