@@ -13,11 +13,16 @@ const REMOTE_NAME: &str = "origin";
 pub struct GitClone {
     owner: String,
     repo: String,
+    branch: String,
 }
 
 impl GitClone {
-    pub fn new(owner: String, repo: String) -> Self {
-        Self { owner, repo }
+    pub fn new(owner: String, repo: String, branch: Option<String>) -> Self {
+        Self {
+            owner,
+            repo,
+            branch: branch.unwrap_or_else(|| "main".to_owned()),
+        }
     }
 }
 
@@ -43,11 +48,6 @@ impl<T: Authentication> GitCloner<T> {
     //     path: PathBuf,
     //     token: SecretString,
     // ) -> tokio::task::JoinHandle<Result<()>> {
-    // let branches: HashSet<&str> = ["origin/main", "origin/master", "origin/develop"]
-    //     .iter()
-    //     .cloned()
-    //     .collect();
-
     // let remote_branches = repo.branches(Some(BranchType::Remote)).unwrap();
     // let filtered_branches = remote_branches
     //     .filter_map(|branch| {
@@ -84,6 +84,7 @@ impl<T: Authentication> GitCloner<T> {
     pub fn clone_repository(
         owner: String,
         repo: String,
+        branch: String,
         token: SecretString,
         directory_path: PathBuf,
         username: String,
@@ -92,38 +93,20 @@ impl<T: Authentication> GitCloner<T> {
         fs::create_dir_all(&directory_path)
             .with_context(|| format!("Could not create directory: {:#?}", &directory_path))?;
 
-        let directory_path = directory_path.join(repo.clone());
+        let directory_path = directory_path.join(&repo).join(&branch);
 
-        let local_repo = git2::Repository::open(&directory_path);
-        match local_repo {
-            Ok(local_repo) => local_repo
-                .find_remote("origin")
-                .expect("Imagine not using origin as your remote name")
-                .fetch(&["main"], None, None)
-                .with_context(|| {
-                    format!("Could not fetch origin main for local repository: {}", repo)
-                }),
-            Err(_) => {
-                let url = format!("https://github.com/{owner}/{repo}");
-                let username = username;
-                let fetch_options =
-                    Self::create_repository_fetch_options(&token, &username, progress_bar);
+        let url = format!("https://github.com/{owner}/{repo}");
+        let fetch_options = Self::create_repository_fetch_options(&token, &username, progress_bar);
 
-                let result = match RepoBuilder::new()
-                    .fetch_options(fetch_options)
-                    .clone(url.as_str(), &directory_path)
-                    .with_context(|| {
-                        format!("Failed to clone repo:\n{url}\n into {:?}", directory_path)
-                    }) {
-                    Ok(_) => Ok(()),
-                    Err(e) => {
-                        let _ = fs::remove_dir_all(&directory_path);
-                        Err(e)
-                    }
-                };
-                result
-            }
+        let result = RepoBuilder::new()
+            .fetch_options(fetch_options)
+            .clone(url.as_str(), &directory_path)
+            .with_context(|| format!("Failed to clone repo:\n{url}\n into {:?}", directory_path));
+        if let Err(_) = result {
+            let _ = fs::remove_dir_all(&directory_path);
         }
+        result?;
+        Ok(())
     }
 
     pub async fn clone_or_fetch_repositories(&self, git_clones: Vec<GitClone>) -> Vec<Result<()>> {
@@ -152,6 +135,7 @@ impl<T: Authentication> GitCloner<T> {
         for repo_details in git_clones {
             let owner = repo_details.owner;
             let repo = repo_details.repo;
+            let branch = repo_details.branch;
             let directory_path = self.directory_path.clone();
             let username = self.authentication.get_username();
             let token = self.authentication.get_token();
@@ -161,7 +145,7 @@ impl<T: Authentication> GitCloner<T> {
                 directory_path.join(repo.clone()),
             ));
 
-            let local_path = self.directory_path.join(&repo);
+            let local_path = self.directory_path.join(&repo).join(&branch);
 
             match git2::Repository::open(&local_path) {
                 Ok(local_repo) => tasks.spawn(async {
@@ -171,6 +155,7 @@ impl<T: Authentication> GitCloner<T> {
                     Self::clone_repository(
                         owner,
                         repo,
+                        branch,
                         token,
                         directory_path,
                         username,
@@ -217,10 +202,7 @@ impl<T: Authentication> GitCloner<T> {
         });
 
         callbacks.credentials(move |_url, _, _allowed_types| {
-            Cred::userpass_plaintext(
-                &default_username,
-                token.expose_secret(),
-            )
+            Cred::userpass_plaintext(&default_username, token.expose_secret())
         });
 
         let mut fetch_options = FetchOptions::new();
@@ -292,6 +274,7 @@ mod tests {
         let _ = fs::remove_dir_all(&directory_path);
         let owner = "RobinCombrink".to_owned();
         let repo = "GitCloner".to_owned();
+        let branch = "main".to_owned();
 
         let authentication = GitHubCliAuthentication::new(owner.clone()).unwrap();
 
@@ -302,6 +285,7 @@ mod tests {
         assert!(GitCloner::<GitHubCliAuthentication>::clone_repository(
             owner,
             repo,
+            branch,
             cloner.authentication.get_token(),
             cloner.directory_path,
             cloner.authentication.get_username(),
