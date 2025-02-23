@@ -42,43 +42,17 @@ impl<T: Authentication> GitCloner<T> {
         Ok(cloner)
     }
 
-    // fn clone_repository_branches(
-    //     repo: git2::Repository,
-    //     name: String,
-    //     path: PathBuf,
-    //     token: SecretString,
-    // ) -> tokio::task::JoinHandle<Result<()>> {
-    // let remote_branches = repo.branches(Some(BranchType::Remote)).unwrap();
-    // let filtered_branches = remote_branches
-    //     .filter_map(|branch| {
-    //         //TODO: Make safe
-    //         let branch = branch.as_ref().unwrap();
-    //         let branch_name = &branch.0.name().unwrap().unwrap();
-    //         //TODO: Add verbose logging option
-    //         if branches.contains(branch_name) {
-    //             // println!("branches contains: {branch_name}");
-    //             return Some((*branch_name).to_owned());
-    //         } else {
-    //             // println!("branches: {:?} does not contain: {branch_name}", branches);
-    //             return None;
-    //         }
-    //     })
-    //     .collect::<Vec<String>>();
-    //     let username = self.cloner.authentication.get_username().clone();
-    //     tokio::task::spawn_blocking(move || self::fetch_repository(path, repo, username, token))
-    // }
-
     fn fetch_repository(
         repo: git2::Repository,
+        branch: String,
         username: String,
         token: SecretString,
         progress_bar: ProgressBar,
     ) -> Result<()> {
         let mut remote = repo.find_remote(REMOTE_NAME)?;
-        // error!("Failed to find remote for:{}/\n{e}", path.display());
         let mut fetch_options =
             Self::create_repository_fetch_options(&token, &username, progress_bar);
-        Ok(remote.fetch(&["main"], Some(&mut fetch_options), None)?)
+        Ok(remote.fetch(&[branch], Some(&mut fetch_options), None)?)
     }
 
     pub fn clone_repository(
@@ -149,7 +123,7 @@ impl<T: Authentication> GitCloner<T> {
 
             match git2::Repository::open(&local_path) {
                 Ok(local_repo) => tasks.spawn(async {
-                    Self::fetch_repository(local_repo, username, token, progress_bar)
+                    Self::fetch_repository(local_repo, branch, username, token, progress_bar)
                 }),
                 Err(_) => tasks.spawn(async {
                     Self::clone_repository(
