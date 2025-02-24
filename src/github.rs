@@ -1,5 +1,5 @@
-use anyhow::{Context, Result};
-use git2::{build::RepoBuilder, Config, Cred, FetchOptions, RemoteCallbacks};
+use anyhow::{anyhow, Context, Result};
+use git2::{build::RepoBuilder, Config, Cred, FetchOptions, RemoteCallbacks, Repository};
 use indicatif::{MultiProgress, ProgressBar, ProgressFinish, ProgressStyle};
 use octocrab::Octocrab;
 use secrecy::ExposeSecret;
@@ -13,7 +13,7 @@ const REMOTE_NAME: &str = "origin";
 pub struct GitClone {
     owner: String,
     repo: String,
-    branch: String,
+    branch: Option<String>,
 }
 
 impl GitClone {
@@ -21,7 +21,7 @@ impl GitClone {
         Self {
             owner,
             repo,
-            branch: branch.unwrap_or_else(|| "main".to_owned()),
+            branch,
         }
     }
 }
@@ -44,10 +44,10 @@ impl<T: Authentication> GitCloner<T> {
 
     fn fetch_repository(
         repo: git2::Repository,
-        branch: String,
         username: String,
         progress_bar: ProgressBar,
     ) -> Result<()> {
+        let branch = Self::get_current_branch_name(&repo)?;
         let mut remote = repo.find_remote(REMOTE_NAME)?;
         let mut fetch_options = Self::create_repository_fetch_options(&username, progress_bar);
         let result = remote.fetch(&[branch], Some(&mut fetch_options), None);
@@ -64,7 +64,7 @@ impl<T: Authentication> GitCloner<T> {
     pub fn clone_repository(
         owner: String,
         repo: String,
-        branch: String,
+        branch: Option<String>,
         directory_path: PathBuf,
         username: String,
         progress_bar: ProgressBar,
@@ -72,17 +72,20 @@ impl<T: Authentication> GitCloner<T> {
         fs::create_dir_all(&directory_path)
             .with_context(|| format!("Could not create directory: {:#?}", &directory_path))?;
 
-        let directory_path = directory_path.join(&repo).join(&branch);
+        let repository_path = match &branch {
+            Some(branch) => directory_path.join(&branch),
+            None => directory_path.join(&repo),
+        };
 
         let url = format!("https://github.com/{owner}/{repo}");
         let fetch_options = Self::create_repository_fetch_options(&username, progress_bar);
 
         let result = RepoBuilder::new()
             .fetch_options(fetch_options)
-            .clone(url.as_str(), &directory_path)
-            .with_context(|| format!("Failed to clone repo:\n{url}\n into {:?}", directory_path));
+            .clone(url.as_str(), &repository_path)
+            .with_context(|| format!("Failed to clone repo:\n{url}\n into {:?}", repository_path));
         if let Err(_) = result {
-            let _ = fs::remove_dir_all(&directory_path);
+            let _ = fs::remove_dir_all(&repository_path);
         }
         result?;
         Ok(())
@@ -117,26 +120,27 @@ impl<T: Authentication> GitCloner<T> {
             let progress_bar = multi_progress.add(create_download_asset_progress_bar(
                 &owner,
                 &repo,
-                directory_path.join(repo.clone()),
+                repository_path.clone(),
             ));
 
-            let local_path = self.directory_path.join(&repo).join(&branch);
+            let local_path = match &branch {
+                Some(branch) => repository_path.join(&branch),
+                None => self.directory_path.join(&repo),
+            };
 
-            match git2::Repository::open(&local_path) {
-                Ok(local_repo) => tasks.spawn(async {
-                    Self::fetch_repository(local_repo, branch, username, progress_bar)
-                }),
-                Err(_) => tasks.spawn(async {
-                    Self::clone_repository(
+            tasks.spawn(async move {
+                match git2::Repository::open(local_path.clone()) {
+                    Ok(repository) => Self::fetch_repository(repository, username, progress_bar),
+                    Err(_) => Self::clone_repository(
                         owner,
                         repo,
                         branch,
                         directory_path,
                         username,
                         progress_bar,
-                    )
-                }),
-            };
+                    ),
+                }
+            });
         }
         let mut results = Vec::new();
         while let Some(res) = tasks.join_next().await {
@@ -147,6 +151,18 @@ impl<T: Authentication> GitCloner<T> {
             coordinator_progress_bar.set_position(results.len().try_into().unwrap());
         }
         results
+    }
+
+    fn get_current_branch_name(repo: &Repository) -> Result<String> {
+        let head = repo.head()?;
+
+        if head.is_branch() {
+            if let Some(name) = head.shorthand() {
+                return Ok(name.to_string());
+            }
+        }
+
+        Err(anyhow!("Could not fetch the name for the current branch - probably because {:#?} has not checked out a branch", repo.path()))
     }
 
     pub fn create_repository_fetch_options<'token>(
@@ -259,7 +275,7 @@ mod tests {
         assert!(GitCloner::<GitHubCliAuthentication>::clone_repository(
             owner,
             repo,
-            branch,
+            Some(branch),
             cloner.directory_path,
             cloner.authentication.get_username(),
             progress_bar
