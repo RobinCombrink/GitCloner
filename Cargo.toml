@@ -4,10 +4,10 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-anyhow = "1.0.95"
-github_authentication = { path = "../GithubAuthentication" }
-git2="0.20.0"
+anyhow = "1.0.98"
+github_authentication = { git = "https://github.com/RobinCombrink/GitHubAuthentication" }
+git2="0.20.2"
 indicatif = { version = "0.17.11", features = ["tokio"] }
-octocrab = "0.43.0"
+octocrab = "0.44.1"
 secrecy = "0.10.3"
-tokio = { version = "1.43.0", features = ["macros"] }
+tokio = { version = "1.45.1", features = ["macros"] }
