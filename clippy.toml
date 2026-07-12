@@ -1,0 +1,5 @@
+# Enforces canon rule (claude/stacks/rust.md): no-matches!-in-production.
+# `matches!` is allowed in test modules via `#[allow(clippy::disallowed_macros)]`.
+disallowed-macros = [
+    { path = "core::matches", reason = "matches! is disallowed in production code — use an explicit pattern match (if let / match) instead. Tests may #[allow(clippy::disallowed_macros)]." },
+]
