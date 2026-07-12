@@ -258,8 +258,8 @@ mod tests {
 
     use super::*;
 
-    #[test]
-    fn clone() {
+    #[tokio::test]
+    async fn clone() {
         let directory_path = "./Test/GitHubSearch".into();
         let _ = fs::remove_dir_all(&directory_path);
         let owner = "RobinCombrink".to_owned();
