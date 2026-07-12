@@ -52,7 +52,7 @@ impl<T: Authentication> GitCloner<T> {
         let mut fetch_options = Self::create_repository_fetch_options(&username, progress_bar);
         let result = remote.fetch(&[branch], Some(&mut fetch_options), None);
         if let Err(err) = result {
-            if err.message().to_ascii_lowercase() == "no error" {
+            if err.message().eq_ignore_ascii_case("no error") {
                 return Ok(());
             } else {
                 return Err(err.into());
@@ -73,7 +73,7 @@ impl<T: Authentication> GitCloner<T> {
             .with_context(|| format!("Could not create directory: {:#?}", &directory_path))?;
 
         let repository_path = match &branch {
-            Some(branch) => directory_path.join(&branch),
+            Some(branch) => directory_path.join(branch),
             None => directory_path.join(&repo),
         };
 
@@ -84,7 +84,7 @@ impl<T: Authentication> GitCloner<T> {
             .fetch_options(fetch_options)
             .clone(url.as_str(), &repository_path)
             .with_context(|| format!("Failed to clone repo:\n{url}\n into {:?}", repository_path));
-        if let Err(_) = result {
+        if result.is_err() {
             let _ = fs::remove_dir_all(&repository_path);
         }
         result?;
@@ -124,7 +124,7 @@ impl<T: Authentication> GitCloner<T> {
             ));
 
             let local_path = match &branch {
-                Some(branch) => repository_path.join(&branch),
+                Some(branch) => repository_path.join(branch),
                 None => self.directory_path.join(&repo),
             };
 
@@ -175,10 +175,10 @@ impl<T: Authentication> GitCloner<T> {
         callbacks.transfer_progress(move |progress| {
             let progress_percent = ((progress.received_objects() as f64
                 / progress.total_objects() as f64)
-                * 100 as f64)
+                * 100_f64)
                 .ceil() as u64;
             let should_update_position = progress_percent != last_logged_progress
-                && (progress_percent == 0 || progress_percent % 5 == 0);
+                && (progress_percent == 0 || progress_percent.is_multiple_of(5));
 
             if should_update_position {
                 progress_bar.set_position(progress_percent);
@@ -199,7 +199,7 @@ impl<T: Authentication> GitCloner<T> {
         fetch_options.remote_callbacks(callbacks);
         fetch_options.depth(1);
 
-        return fetch_options;
+        fetch_options
     }
 
     pub fn initialise_octocrab(&self) -> Result<()> {

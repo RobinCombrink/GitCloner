@@ -347,6 +347,7 @@ dependencies = [
 [[package]]
 name = "github_authentication"
 version = "0.1.0"
+source = "git+https://github.com/RobinCombrink/GitHubAuthentication#978bede0e05f867fea30709540da86f346eed736"
 dependencies = [
  "anyhow",
  "secrecy",
