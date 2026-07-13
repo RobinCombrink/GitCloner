@@ -1,0 +1,12 @@
+name: automerge
+
+on:
+  pull_request:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  automerge:
+    uses: RobinCombrink/actions-automerge/.github/workflows/automerge.yml@88be637a0fe09c0540731acb0271e30770b448b6 # v1.0.0
