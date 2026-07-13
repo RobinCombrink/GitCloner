@@ -173,10 +173,9 @@ impl<T: Authentication> GitCloner<T> {
 
         let mut last_logged_progress = 0;
         callbacks.transfer_progress(move |progress| {
-            let progress_percent = ((progress.received_objects() as f64
-                / progress.total_objects() as f64)
-                * 100_f64)
-                .ceil() as u64;
+            let progress_percent =
+                ((progress.received_objects() as f64 / progress.total_objects() as f64) * 100_f64)
+                    .ceil() as u64;
             let should_update_position = progress_percent != last_logged_progress
                 && (progress_percent == 0 || progress_percent.is_multiple_of(5));
 
