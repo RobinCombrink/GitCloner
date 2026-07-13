@@ -1,0 +1,18 @@
+name: gitleaks
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  security-events: write
+
+concurrency:
+  group: "${{ github.workflow }}-${{ github.ref }}"
+  cancel-in-progress: true
+
+jobs:
+  scan:
+    uses: RobinCombrink/actions-gitleaks/.github/workflows/gitleaks.yml@0ad0a7a87246dc406c42797eea28b048e27673c4 # v1.0.0
