@@ -70,7 +70,7 @@ impl<T: Authentication> GitCloner<T> {
         progress_bar: ProgressBar,
     ) -> Result<()> {
         fs::create_dir_all(&directory_path)
-            .with_context(|| format!("Could not create directory: {:#?}", &directory_path))?;
+            .with_context(|| format!("Could not create directory: {:#?}", directory_path))?;
 
         let repository_path = match &branch {
             Some(branch) => directory_path.join(branch),
