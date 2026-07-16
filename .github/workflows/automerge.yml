@@ -9,4 +9,4 @@ permissions:
 
 jobs:
   automerge:
-    uses: RobinCombrink/actions-automerge/.github/workflows/automerge.yml@88be637a0fe09c0540731acb0271e30770b448b6 # v1.0.0
+    uses: RobinCombrink/actions-automerge/.github/workflows/automerge.yml@5f9734d8dcd96cf94ad1a41c6fa0171df8d367b7 # v1.0.3
