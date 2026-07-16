@@ -15,4 +15,4 @@ concurrency:
 
 jobs:
   scan:
-    uses: RobinCombrink/actions-gitleaks/.github/workflows/gitleaks.yml@0ad0a7a87246dc406c42797eea28b048e27673c4 # v1.0.0
+    uses: RobinCombrink/actions-gitleaks/.github/workflows/gitleaks.yml@01dce36d3aa3cde80b8e1e8c2026da421dde881b # v1.0.3
