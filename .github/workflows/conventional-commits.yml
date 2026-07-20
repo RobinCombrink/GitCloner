@@ -1,4 +1,4 @@
-﻿name: conventional-commits
+name: conventional-commits
 
 on:
   pull_request:
@@ -14,4 +14,4 @@ concurrency:
 
 jobs:
   lint:
-    uses: RobinCombrink/actions-conventional-commits/.github/workflows/conventional-commits.yml@dbaa582f00df9168fcde7afd60c33cfa940c1ff9 # v1.0.3
+    uses: RobinCombrink/actions-conventional-commits/.github/workflows/conventional-commits.yml@a67307a9eb2ae420cc7c7b06a7ba5d093b0838b0 # v1.0.4
