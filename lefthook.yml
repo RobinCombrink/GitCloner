@@ -1,0 +1,6 @@
+remotes:
+  - git_url: https://github.com/RobinCombrink/dotfiles
+    ref: main
+    configs:
+      - lefthook/commit-msg.yml
+      - lefthook/rust.yml
