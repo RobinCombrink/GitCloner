@@ -12,4 +12,4 @@ concurrency:
 
 jobs:
   release:
-    uses: RobinCombrink/actions-release/.github/workflows/release.yml@5b4c556bff4fbdaf8b42ab6f096ccf06fa095e90 # v1.0.3
+    uses: RobinCombrink/actions-release/.github/workflows/release.yml@1e02c35d40602bf9ebb0eed1615aec89f2e6a5f7 # v1.2.0
