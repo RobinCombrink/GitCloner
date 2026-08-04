@@ -14,4 +14,4 @@ concurrency:
 
 jobs:
   lint:
-    uses: RobinCombrink/actions-conventional-commits/.github/workflows/conventional-commits.yml@a67307a9eb2ae420cc7c7b06a7ba5d093b0838b0 # v1.0.4
+    uses: RobinCombrink/actions-conventional-commits/.github/workflows/conventional-commits.yml@8a72af59373164187df79b733071a431bf7e5dec # v2.0.0
