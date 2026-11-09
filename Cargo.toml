@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0.98"
-github_authentication = { git = "https://github.com/RobinCombrink/GitHubAuthentication" }
+github_authentication = { git = "https://github.com/RobinCombrink/GitHubAuthentication", branch = "main" }
 git2="0.20.2"
 indicatif = { version = "0.17.11", features = ["tokio"] }
 octocrab = "0.44.1"
