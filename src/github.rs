@@ -6,7 +6,7 @@ use secrecy::ExposeSecret;
 use std::{borrow::Cow, fs, path::PathBuf, time::Duration};
 use tokio::task::JoinSet;
 
-use github_authentication::authentication::Authentication;
+use github_authentication::GitHubToken;
 
 const REMOTE_NAME: &str = "origin";
 
@@ -27,15 +27,17 @@ impl GitClone {
 }
 
 #[derive(Debug)]
-pub struct GitCloner<T: Authentication> {
-    pub authentication: T,
+pub struct GitCloner {
+    account: String,
+    token: GitHubToken,
     pub directory_path: PathBuf,
 }
 
-impl<T: Authentication> GitCloner<T> {
-    pub fn new(authentication: T, directory_path: PathBuf) -> Result<GitCloner<T>> {
+impl GitCloner {
+    pub fn new(account: String, token: GitHubToken, directory_path: PathBuf) -> Result<GitCloner> {
         let cloner = GitCloner {
-            authentication,
+            account,
+            token,
             directory_path,
         };
         Self::initialise_octocrab(&cloner)?;
@@ -116,7 +118,7 @@ impl<T: Authentication> GitCloner<T> {
             let branch = repo_details.branch;
             let directory_path = self.directory_path.clone();
             let repository_path = directory_path.join(&repo);
-            let username = self.authentication.get_username();
+            let username = self.account.clone();
             let progress_bar = multi_progress.add(create_download_asset_progress_bar(
                 &owner,
                 &repo,
@@ -202,7 +204,7 @@ impl<T: Authentication> GitCloner<T> {
     }
 
     pub fn initialise_octocrab(&self) -> Result<()> {
-        let token = self.authentication.get_token().expose_secret().to_owned();
+        let token = self.token.secret().expose_secret().to_owned();
         let instance = Octocrab::builder().personal_token(token).build()?;
         octocrab::initialise(instance);
         Ok(())
@@ -252,34 +254,4 @@ pub fn create_download_asset_progress_bar(
 }
 
 #[cfg(test)]
-mod tests {
-    use github_authentication::authentication::GitHubCliAuthentication;
-
-    use super::*;
-
-    #[tokio::test]
-    async fn clone() {
-        let directory_path = "./Test/GitHubSearch".into();
-        let _ = fs::remove_dir_all(&directory_path);
-        let owner = "RobinCombrink".to_owned();
-        let repo = "GitCloner".to_owned();
-        let branch = "main".to_owned();
-
-        let authentication = GitHubCliAuthentication::new(owner.clone()).unwrap();
-
-        let cloner = GitCloner::new(authentication, directory_path).unwrap();
-        let directory_path = cloner.directory_path.clone();
-        let progress_bar =
-            create_download_asset_progress_bar(&owner, &repo, directory_path.clone());
-        assert!(GitCloner::<GitHubCliAuthentication>::clone_repository(
-            owner,
-            repo,
-            Some(branch),
-            cloner.directory_path,
-            cloner.authentication.get_username(),
-            progress_bar
-        )
-        .is_ok());
-        let _ = fs::remove_dir_all(&directory_path);
-    }
-}
+mod tests;

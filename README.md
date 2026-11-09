@@ -9,8 +9,9 @@ Provides a higher-level interface over `git2` for cloning GitHub repositories wi
 ## Usage
 
 ```rust
-use git_cloner::github_authentication::authentication::GitHubCliAuthentication;
+use git_cloner::{github::GitCloner, github_authentication::cli::token_for};
 // Clone repos from a GitHub org with progress bars
+let cloner = GitCloner::new(account.clone(), token_for(&account)?, directory_path)?;
 ```
 
 Requires `gh` CLI installed and authenticated (via the `github_authentication` crate).
